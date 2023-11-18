@@ -1,9 +1,12 @@
-# coding = utf-8
 import frekfencyjna
 import edycyjna
 import re
 import marshal
 import csv
+
+# TODO: Edycja odległości edycyjnej tak, żeby wyraz ze słownika nigdy nie był zmieniany
+# TODO: Wyświetlanie pełnego zdania po poprawkach
+# TODO: Cache'owanie wyników dla błędnych wyrazów
 
 
 def words_to_dict(words):
@@ -49,14 +52,89 @@ def inspect(word):
     return upper, inter
 
 
-def create_korpus(text):
+def compare(mistake_dict, f_dict):
+    """
+    Porównanie i sortowanie słownika proponowanych słów z listą frekwencyjną.
+    :param mistake_dict: Słownik z proponowanymi słowami.
+    :param f_list: Lista frekwencyjna.
+    :return: Posortowana lista z proponowanymi słowami.
+    """
+    sorted_mistake_dict = {}
+    # przygotowanie słownika posortowanego według pozycji na liście frekwencyjnej
+    mistake_list = [word for word in mistake_dict.keys()]
+    sorted_mistake_list = sorted(mistake_list, key=lambda x: f_dict.get(x, len(f_dict) + 1))
+    # Własna inwencja twórcza może być głupie (chcę uwzględnić wynik Levenshteina i pozycję na liście frekwencyjnej)
+    for index, key in enumerate(sorted_mistake_list, start=1):
+        value = mistake_dict[key] + index
+        sorted_mistake_dict[key] = value
 
-    return text
+    sorted_mistake_dict = dict(sorted(sorted_mistake_dict.items(), key=lambda x: x[1]))
+
+    return sorted_mistake_dict
+
+
+def frequency_list(korpus):
+    """
+    Zmienia korpus na listę słów posortowaną według częstości występowania.
+    :param korpus: Nazwa pliku tekstowego.
+    :return: Słownik słowo: pozycja w słowniku.
+    """
+    f_words = {}
+    # Tworzę listę frekwencyjną na podstawie tekstu
+    csv_file = frekfencyjna.freq(korpus)
+    # Odczytanie słów z pliku CSV
+    with open(csv_file, 'r', encoding="utf8") as file:
+        reader = csv.reader(file)
+        # Pominięcie nagłówków, jeśli istnieją
+        next(reader, None)
+        # Dodanie słów do listy
+        i = 1
+        for row in reader:
+            word = row[1]
+            f_words.update({word: i})
+            i += 1
+
+    return f_words
+
+
+def user_input(candidates_dict, upper, inter):
+    """
+    Wyświetla listę możliwych korekcji i zrwaca wybrane przez użytkownika słowo.
+    :param candidates_dict: Słownik proponowanych słów.
+    :return: Wybrane przez użytkownika słowo.
+    """
+    correction = ''
+    first_5_keys = list(candidates_dict.keys())[:5]
+    print(' Czy chodziło Ci o jedno z poniższych słów?\n', first_5_keys, '\n',
+          'Wybierz słowo z listy wpisując cyfrę od 1 do 5. Jeśli nie ma odpowiedniego słowa wpisz 0')
+    x = input()
+
+    while x not in '012345':
+        print(first_5_keys, '\n',
+              'Wybierz słowo z listy wpisując cyfrę od 1 do 5. Jeśli nie ma odpowiedniego słowa wpisz 0')
+        x = input()
+
+    if x == '0':
+        m2 = input('Jeśli chcesz wpisać poprawne słowo wpisz 1\n')
+        if m2 == '1':
+            correction = input()
+            print(' Wprowadziłeś słowo: ', correction, '\n\n\n')
+    else:
+        correction = first_5_keys[int(x) - 1]
+        print(' Wybrałeś słowo: ', correction, '\n\n\n')
+
+    if upper:
+        correction = correction.capitalize()
+
+    if inter:
+        correction = correction + inter
+
+    return correction
 
 
 def correct(words, korpus):
     """
-    Funkcja, która przeprowadza półautomatyczną korektę słów
+    Funkcja, która przeprowadza półautomatyczną korektę słów.
     :param words: Zdanie do korekty.
     :param korpus: Nazwa pliku, na podstawie którego będzie tworzona lista frekwencyjna.
     :return: Zwraca poprawne zdanie
@@ -65,21 +143,18 @@ def correct(words, korpus):
     # tworzę słownik z parami "słowo oryginalne": "słowo oryginalne, które będzie zmieniane w razie potrzeby"
     to_correct = words_to_dict(words)
     # Listę z pliku, w którym znajduje się lista odmienionych słów (źródło: sjp)
-    dictionary = text_to_list('test.txt')
-    # Tworzę listę frekwencyjną na podstawie tekstu
-    freq = frekfencyjna.freq(korpus)
+    dictionary = text_to_list('odm.txt')
 
-    # Będę przechowywał słowa z błędami
-    error = []
+    freq = frequency_list(korpus)
+
     # Słownik słów, które mogą zastąpić wyraz z błędem. Wartość to koszt zamiany z odległości Levenshteina.
     group = {}
-    print(to_correct)
+    # print(to_correct)
 
     for key, value in to_correct.items():
 
         if value not in dictionary:
-            print(value, 'nie ma w słowniku')
-
+            print('Słowa', value, 'nie ma w słowniku')
             # Czy słowo zaczyna się od dużej? Czy kończy się znakiem interpunkcyjnym?
             upper, inter = inspect(key)
 
@@ -107,16 +182,21 @@ def correct(words, korpus):
                     group.pop(temp)
                     group.update({word: distance})
 
-            # TODO: Sortowanie listy kandydatów według częstości występowania na liście frekwencyjnej
-            # TODO: Przygotowanie listy 5 kandydatów do wyboru przez użytkownika
-            # TODO: Obsługa wyboru propozycji wyrazu przez użytkownika
-            # TODO: Dodanie wielkiej litery i interpunkcji PO WYBORZE UŻYTKOWNIKA (jeśli były)
-            # TODO: Edycja odległości edycyjnej tak, żeby wyraz ze słownika nigdy nie był zmieniany
-            # TODO: Wyświetlanie pełnego zdania po poprawkach
-            # TODO: Cache'owanie wyników dla błędnych wyrazów
-
             print(group, len(group))
+            candidates = compare(group, freq)
+            # print(candidates)
+            correction = user_input(candidates, upper, inter)
 
-# x = "ala, żółw kot pies papuga goląb Sfkgnadn, ala"
-x = "ala, żółw kot pies papuga goląb ala"
-correct(x, 'wiki.txt')
+            # print(correction)
+            if correction != '':
+                to_correct[key] = correction
+            # print(to_correct)
+        group = {}
+
+    correct_sentence = ' '.join(to_correct.values())
+    return correct_sentence
+
+
+x = "Mialen puroblem, ktory wymagau szypkiego rosfionsania"
+# x = "ala, żółw kot pies papuga goląb ala"
+print(correct(x, 'wiki.txt'))
