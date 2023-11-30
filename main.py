@@ -3,6 +3,7 @@ import edycyjna
 import re
 import marshal
 import csv
+import os
 
 # TODO: Edycja odległości edycyjnej tak, żeby wyraz ze słownika nigdy nie był zmieniany
 # TODO: Wyświetlanie pełnego zdania po poprawkach
@@ -52,7 +53,7 @@ def inspect(word):
     return upper, inter
 
 
-def compare(mistake_dict, f_dict):
+def compare(mistake_dict, f_list):
     """
     Porównanie i sortowanie słownika proponowanych słów z listą frekwencyjną.
     :param mistake_dict: Słownik z proponowanymi słowami.
@@ -62,7 +63,7 @@ def compare(mistake_dict, f_dict):
     sorted_mistake_dict = {}
     # przygotowanie słownika posortowanego według pozycji na liście frekwencyjnej
     mistake_list = [word for word in mistake_dict.keys()]
-    sorted_mistake_list = sorted(mistake_list, key=lambda x: f_dict.get(x, len(f_dict) + 1))
+    sorted_mistake_list = sorted(mistake_list, key=lambda x: f_list.get(x, len(f_list) + 1))
     # Własna inwencja twórcza może być głupie (chcę uwzględnić wynik Levenshteina i pozycję na liście frekwencyjnej)
     for index, key in enumerate(sorted_mistake_list, start=1):
         value = mistake_dict[key] + index
@@ -97,9 +98,32 @@ def frequency_list(korpus):
     return f_words
 
 
+# def cache(word, words, freq):
+#     cached_filename = word + '_cached.marchal'
+#     if os.path.exists(cached_filename):
+#         try:
+#             with open(cached_filename, 'rb') as cached_file:
+#                 cached_data = cached_file.read()
+#                 result = marshal.loads(cached_data)
+#             print('coś')
+#             return result
+#         except (FileNotFoundError, EOFError, ValueError):
+#             print('     wystąpił problem')
+#             pass
+#
+#     print('nie działa')
+#     result = compare(words, freq)
+#
+#     with open(cached_filename, 'wb') as cached_file:
+#         cached_data = marshal.dumps(result)
+#         cached_file.write(cached_data)
+#
+#     return result
+
+
 def user_input(candidates_dict, upper, inter):
     """
-    Wyświetla listę możliwych korekcji i zrwaca wybrane przez użytkownika słowo.
+    Wyświetla listę możliwych korekcji i zwraca wybrane przez użytkownika słowo.
     :param candidates_dict: Słownik proponowanych słów.
     :return: Wybrane przez użytkownika słowo.
     """
@@ -158,33 +182,49 @@ def correct(words, korpus):
             # Czy słowo zaczyna się od dużej? Czy kończy się znakiem interpunkcyjnym?
             upper, inter = inspect(key)
 
-            # Tworzę listę kandydatów
-            for word in dictionary:
+            cached_filename = value + '_cached.marchal'
 
-                # obliczam odległość Levenshteina
-                distance = edycyjna.lev(word, value)
-                # print(word, value, distance)
+            if os.path.exists(cached_filename):
+                try:
+                    with open(cached_filename, 'rb') as cached_file:
+                        cached_data = cached_file.read()
+                        candidates = marshal.loads(cached_data)
+                except (FileNotFoundError, EOFError, ValueError):
+                    print('     wystąpił problem')
+                    pass
+            else:
+                # Tworzę listę kandydatów
+                for word in dictionary:
 
-                # Lista kandydatów ma mieć 20 pozycji (teraz testuje na mniejszej - 7 pozycji)
-                if len(group) < 7:
-                    try:
-                        # Dodaję parę, jeśli odległość jest mniejsza od największej odległości zapisanej w słowniku.
-                        if distance < max(group.values()):
-                            group.update({word: distance})
-                    except ValueError:
-                        # jeśli nic nie ma w słowniku to dodaję pierwszą parę
-                        if len(group) == 0:
-                            group.update({word: distance})
-                # Jeśli słownik jest pełny, to sprawdzam, czy odległość jest mniejsza od
-                # największej odległości zapisanej w słowniku.
-                elif distance < max(group.values()):
-                    temp = max(group, key=group.get)
-                    group.pop(temp)
-                    group.update({word: distance})
+                    # obliczam odległość Levenshteina
+                    distance = edycyjna.lev(word, value)
+                    # print(word, value, distance)
 
-            print(group, len(group))
-            candidates = compare(group, freq)
-            # print(candidates)
+                    # Lista kandydatów ma mieć 20 pozycji (teraz testuje na mniejszej - 7 pozycji)
+                    if len(group) < 7:
+                        try:
+                            # Dodaję parę, jeśli odległość jest mniejsza od największej odległości zapisanej w słowniku.
+                            if distance < max(group.values()):
+                                group.update({word: distance})
+                        except ValueError:
+                            # jeśli nic nie ma w słowniku to dodaję pierwszą parę
+                            if len(group) == 0:
+                                group.update({word: distance})
+                    # Jeśli słownik jest pełny, to sprawdzam, czy odległość jest mniejsza od
+                    # największej odległości zapisanej w słowniku.
+                    elif distance < max(group.values()):
+                        temp = max(group, key=group.get)
+                        group.pop(temp)
+                        group.update({word: distance})
+
+                print(group, len(group))
+                candidates = compare(group, freq)
+
+                with open(cached_filename, 'wb') as cached_file:
+                    cached_data = marshal.dumps(candidates)
+                    cached_file.write(cached_data)
+
+            print(candidates)
             correction = user_input(candidates, upper, inter)
 
             # print(correction)
@@ -199,4 +239,5 @@ def correct(words, korpus):
 
 x = "Mialen puroblem, ktory wymagau szypkiego rosfionsania"
 # x = "ala, żółw kot pies papuga goląb ala"
+# x = "piesy"
 print(correct(x, 'wiki.txt'))
